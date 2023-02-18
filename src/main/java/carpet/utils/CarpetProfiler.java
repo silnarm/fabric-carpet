@@ -1,5 +1,6 @@
 package carpet.utils;
 
+import it.unimi.dsi.fastutil.objects.Object2LongArrayMap;
 import it.unimi.dsi.fastutil.objects.Object2LongMap;
 import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap;
 import net.minecraft.commands.CommandSourceStack;
@@ -16,13 +17,14 @@ import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import org.apache.commons.lang3.tuple.Pair;
 
-import java.util.Comparator;
-import java.util.Map;
+import java.util.*;
 
 import static java.util.Map.entry;
 
 public class CarpetProfiler
 {
+    private static final Map<String, List<Long>> SECTION_TIMES = new HashMap<>();
+    private static final Object2LongOpenHashMap<String> SECTION_TICKTIMES = new Object2LongOpenHashMap<>();
     private static final Object2LongOpenHashMap<String> SECTION_STATS = new Object2LongOpenHashMap<>();
     private static final Object2LongOpenHashMap<Pair<Level,Object>> ENTITY_TIMES = new Object2LongOpenHashMap<>();
     private static final Object2LongOpenHashMap<Pair<Level,Object>> ENTITY_COUNT = new Object2LongOpenHashMap<>();
@@ -90,6 +92,9 @@ public class CarpetProfiler
         ENTITY_TIMES.clear();
         test_type = TYPE.GENERAL;
 
+        SECTION_TIMES.clear();
+        SECTION_TIMES.put("tick", new ArrayList<>(ticks));
+
         tick_health_elapsed = ticks;
         tick_health_requested = ticks;
         current_tick_start = 0L;
@@ -142,6 +147,7 @@ public class CarpetProfiler
                     (String) tok.section :
                     String.format("%s.%s%s", world.dimension().location(), tok.section, world.isClientSide ? " (Client)" : "");
             SECTION_STATS.addTo(current_section, end_time - tok.start);
+            SECTION_TICKTIMES.addTo(current_section, end_time - tok.start);
         }
     }
 
@@ -158,13 +164,24 @@ public class CarpetProfiler
     public static void start_tick_profiling()
     {
         current_tick_start = System.nanoTime();
+        SECTION_TICKTIMES.clear();
     }
 
     public static void end_tick_profiling(MinecraftServer server)
     {
         if (current_tick_start == 0L)
             return;
-        SECTION_STATS.addTo("tick", System.nanoTime() - current_tick_start);
+        long time = System.nanoTime() - current_tick_start;
+        SECTION_STATS.addTo("tick", time);
+
+        SECTION_TICKTIMES.forEach( (key, value) -> {
+            if (!SECTION_TIMES.containsKey(key)) {
+                SECTION_TIMES.put(key, new ArrayList<>(tick_health_requested));
+            }
+            SECTION_TIMES.get(key).add(value);
+        } );
+
+        SECTION_TIMES.get("tick").add(time);
         tick_health_elapsed--;
         if (tick_health_elapsed <= 0)
         {
@@ -199,35 +216,49 @@ public class CarpetProfiler
         if (currentRequester == null)
             return;
         long total_tick_time = SECTION_STATS.getLong("tick");
-        double divider = 1.0D / tick_health_requested / 1000000;
-        Messenger.m(currentRequester, "w ");
-        Messenger.m(currentRequester, "wb Average tick time: ", String.format("yb %.3fms", divider * total_tick_time));
-        long accumulated = 0L;
+        double totalScale = 1.0D / tick_health_requested / 1000000;
+        double tickScale = 1.0 / 1000000.0;
 
+        Messenger.m(currentRequester, "w ");
+        Messenger.m(currentRequester, "wb Average tick time: ", String.format("yb %.3fms", totalScale * total_tick_time));
+        var maxTick = Collections.max(SECTION_TIMES.get("tick"), null);
+        Messenger.m(currentRequester, "wb Maximum tick time: ", String.format("yb %.3fms", tickScale * maxTick));
+        long accumulated = 0L;
         for (String section : GENERAL_SECTIONS.keySet())
         {
-            double amount = divider * SECTION_STATS.getLong(section);
-            if (amount > 0.01)
+            double amount = totalScale * SECTION_STATS.getLong(section);
+            double max_amount = 0.0;
+            if (SECTION_TIMES.containsKey(section) && !SECTION_TIMES.get(section).isEmpty()) {
+                max_amount = tickScale * Collections.max(SECTION_TIMES.get(section), null);
+            }
+
+            if (amount > 0.01 || max_amount > 1.0)
             {
                 accumulated += SECTION_STATS.getLong(section);
                 Messenger.m(
                         currentRequester,
                         "w " + section + ": ",
                         "^ " + GENERAL_SECTIONS.get(section),
-                        "y %.3fms".formatted(amount)
+                        "y %.3fms".formatted(amount), "  Avg, ",
+                        "y %.3fms".formatted(max_amount), "  Max."
                 );
             }
         }
         for (String section : SCARPET_SECTIONS.keySet())
         {
-            double amount = divider * SECTION_STATS.getLong(section);
-            if (amount > 0.01)
+            double amount = totalScale * SECTION_STATS.getLong(section);
+            double max_amount = 0.0;
+            if (SECTION_TIMES.containsKey(section) && !SECTION_TIMES.get(section).isEmpty()) {
+                max_amount = tickScale * Collections.max(SECTION_TIMES.get(section), null);
+            }
+            if (amount > 0.01 || max_amount > 1.0)
             {
                 Messenger.m(
                         currentRequester,
                         "gi "+section+": ",
                         "^ " + SCARPET_SECTIONS.get(section),
-                        "di %.3fms".formatted(amount)
+                        "di %.3fms".formatted(amount), "  Avg, ",
+                        "di %.3fms".formatted(max_amount), "  Max"
                 );
             }
         }
@@ -238,8 +269,13 @@ public class CarpetProfiler
             boolean hasSomethin = false;
             for (String section : SECTIONS.keySet())
             {
-                double amount = divider * SECTION_STATS.getLong(dimensionId + "." + section);
-                if (amount > 0.01)
+                double amount = totalScale * SECTION_STATS.getLong(dimensionId + "." + section);
+                double max_amount = 0.0;
+                if (SECTION_TIMES.containsKey(dimensionId + "." + section) && !SECTION_TIMES.get(dimensionId + "." + section).isEmpty()) {
+                    max_amount = tickScale * Collections.max(SECTION_TIMES.get(dimensionId + "." + section), null);
+                }
+
+                if (amount > 0.01 || max_amount > 1.0)
                 {
                     hasSomethin = true;
                     break;
@@ -252,17 +288,24 @@ public class CarpetProfiler
             Messenger.m(currentRequester, "wb "+(dimensionId.getNamespace().equals("minecraft")?dimensionId.getPath():dimensionId.toString()) + ":");
             for (String section : SECTIONS.keySet())
             {
-                double amount = divider * SECTION_STATS.getLong(dimensionId + "." + section);
-                if (amount > 0.01)
+                double amount = totalScale * SECTION_STATS.getLong(dimensionId + "." + section);
+                boolean clientSide = section.endsWith("(Client)");
+                double max_amount = 0.0;
+                if (SECTION_TIMES.containsKey(dimensionId + "." + section) && !SECTION_TIMES.get(dimensionId + "." + section).isEmpty()) {
+                    max_amount = tickScale * Collections.max(SECTION_TIMES.get(dimensionId + "." + section), null);
+                }
+
+                if (amount > 0.01 || max_amount > 1.0)
                 {
-                    boolean cli = section.endsWith("(Client)");
-                    if (!cli)
+                    if (!clientSide) {
                         accumulated += SECTION_STATS.getLong(dimensionId + "." + section);
+                    }
                     Messenger.m(
                             currentRequester,
-                            "%s - %s: ".formatted(cli ? "gi" : "w", section),
+                            "%s - %s: ".formatted(clientSide ? "gi" : "w", section),
                             "^ " + SECTIONS.get(section),
-                            "%s %.3fms".formatted(cli ? "di" : "y", amount)
+                            "%s %.3fms".formatted(clientSide ? "di" : "y", amount), (clientSide ? "i" : " ") + " Avg, ",
+                            "%s %.3fms".formatted(clientSide ? "di" : "y", max_amount), (clientSide ? "i" : " ") + "  Max"
                     );
                 }
             }
@@ -270,7 +313,7 @@ public class CarpetProfiler
 
         long rest = total_tick_time - accumulated;
 
-        Messenger.m(currentRequester, String.format("gi The Rest, whatever that might be: %.3fms", divider * rest));
+        Messenger.m(currentRequester, String.format("gi The Rest, whatever that might be: %.3fms", totalScale * rest));
     }
 
     private static String sectionName(Pair<Level,Object> section)
