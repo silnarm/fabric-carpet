@@ -381,17 +381,40 @@ public class CarpetSettings
     public static boolean flippinCactus = false;
 
     @Rule(
-            desc = "hoppers pointing to wool will count items passing through them",
+            desc = "hoppers pointing to wool will count items they push, and push their entire inventory every 8 ticks",
             extra = {
                     "Enables /counter command, and actions while placing red and green carpets on wool blocks",
                     "Use /counter <color?> reset to reset the counter, and /counter <color?> to query",
                     "In survival, place green carpet on same color wool to query, red to reset the counters",
                     "Counters are global and shared between players, 16 channels available",
-                    "Items counted are destroyed, count up to one stack per tick per hopper"
+                    "Items counted are destroyed, count up to 5 stacks per tick per hopper"
             },
             category = {COMMAND, CREATIVE, FEATURE}
     )
     public static boolean hopperCounters = false;
+
+    @Rule(
+            desc = "hoppers pointing to wool will count items they push, and push only 1 item per 8 ticks",
+            extra = {
+                    "Modifies behaviour of hopperCounters to limit the items they can push(/count) to standard hopper rates",
+                    "Items counted are destroyed, count up to 1 item per 8 ticks per hopper"
+            },
+            category = {COMMAND, CREATIVE, FEATURE}
+    )
+    public static boolean hopperCountersLimited = false;
+
+    @Rule(
+            desc = "hoppers below wool with item frames on top will suck the item frame's held item in and count item sucked in",
+            extra = {
+                    "Enables input counting addon for hopperCounters, adding 'input' categories for each colour.",
+                    "Place coloured wool above hopper and an item frame on top of the wool, with the item type to feed in the frame",
+                    "Counters are global and shared between players, 16 channels available",
+                    "Up to one full stack of items per 8 ticks per hopper are provided"
+            },
+            category = {COMMAND, CREATIVE, FEATURE}
+    )
+    public static boolean hopperInputCounters = false;
+
 
     @Rule(
             desc = "Allows Budding Amethyst blocks to be moved",

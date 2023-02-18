@@ -33,6 +33,7 @@ import net.minecraft.world.level.block.BeaconBeamBlock;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.material.MaterialColor;
+import org.apache.commons.lang3.StringUtils;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -40,7 +41,6 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 import static java.util.Map.entry;
 
@@ -62,14 +62,29 @@ public class HopperCounter
 
     public static final TextColor WHITE = TextColor.fromLegacyFormat(ChatFormatting.WHITE);
 
+    private static final EnumMap<DyeColor, String> dyeColourToPrettyColourNameMap = new EnumMap<DyeColor, String>(DyeColor.class);
+    private static final EnumMap<DyeColor, String> dyeColourToPrettyColourTitleMap = new EnumMap<DyeColor, String>(DyeColor.class);
+    private static final EnumMap<DyeColor, String> dyeColourToPrettyColourCodeMap = new EnumMap<DyeColor, String>(DyeColor.class);
+
     static
     {
         EnumMap<DyeColor, HopperCounter> counterMap = new EnumMap<>(DyeColor.class);
         for (DyeColor color : DyeColor.values())
         {
             counterMap.put(color, new HopperCounter(color));
+            dyeColourToPrettyColourNameMap.put(color, WoolTool.Material2DyeName.getOrDefault(color.getMaterialColor(),"w ") + color.getName());
+            dyeColourToPrettyColourCodeMap.put(color, WoolTool.Material2DyeName.getOrDefault(color.getMaterialColor(),"w "));
+            dyeColourToPrettyColourTitleMap.put(color, WoolTool.Material2DyeName.getOrDefault(color.getMaterialColor(),"w ") + snakeCaseToTitle(color.getName()));
         }
         COUNTERS = Collections.unmodifiableMap(counterMap);
+    }
+
+    private static String snakeCaseToTitle(String in) {
+        String[] bits = in.split("\\_");
+        for (int i=0; i < bits.length; ++i) {
+            bits[i] = StringUtils.capitalize(bits[i]);
+        }
+        return String.join(" ", bits);
     }
 
     /**
@@ -85,7 +100,9 @@ public class HopperCounter
      * All the items stored within the counter, as a map of {@link Item} mapped to a {@code long} of the amount of items
      * stored thus far of that item type.
      */
-    private final Object2LongMap<Item> counter = new Object2LongLinkedOpenHashMap<>();
+    private final Object2LongMap<Item> inputCounter = new Object2LongLinkedOpenHashMap<>();
+    private final Object2LongMap<Item> outputCounter = new Object2LongLinkedOpenHashMap<>();
+
     /**
      * The starting tick of the counter, used to calculate in-game time. Only initialised when the first item enters the
      * counter
@@ -112,14 +129,22 @@ public class HopperCounter
      */
     public void add(MinecraftServer server, ItemStack stack)
     {
-        if (startTick < 0)
-        {
+        _add(server, stack, outputCounter);
+    }
+
+    public void addInput(MinecraftServer server, ItemStack stack)
+    {
+        _add(server, stack, inputCounter);
+    }
+
+    private void _add(MinecraftServer server, ItemStack stack, Object2LongMap<Item> map)
+    {
+        if (startTick < 0) {
             startTick = server.getLevel(Level.OVERWORLD).getGameTime();  //OW
             startMillis = System.currentTimeMillis();
         }
         Item item = stack.getItem();
-        counter.put(item, counter.getLong(item) + stack.getCount());
-        // pubSubProvider.publish();
+        map.put(item, map.getLong(item) + stack.getCount());
     }
 
     /**
@@ -127,7 +152,8 @@ public class HopperCounter
      */
     public void reset(MinecraftServer server)
     {
-        counter.clear();
+        outputCounter.clear();
+        inputCounter.clear();
         startTick = server.getLevel(Level.OVERWORLD).getGameTime();  //OW
         startMillis = System.currentTimeMillis();
         // pubSubProvider.publish();
@@ -147,82 +173,108 @@ public class HopperCounter
     }
 
     /**
-     * Prints all the counters to chat, nicely formatted, and you can choose whether to diplay in in game time or IRL time
+     * Prints all the counters to chat, nicely formatted, and you can choose whether to display it in game time or IRL time
      */
-    public static List<Component> formatAll(MinecraftServer server, boolean realtime)
+    public static List<Component> formatAllForChat(MinecraftServer server, boolean realtime)
     {
         List<Component> text = new ArrayList<>();
-
-        for (HopperCounter counter : COUNTERS.values())
-        {
-            List<Component> temp = counter.format(server, realtime, false);
-            if (temp.size() > 1)
-            {
-                if (!text.isEmpty()) text.add(Messenger.s(""));
-                text.addAll(temp);
+        var keys = DyeColor.values();
+        for (var key : keys) {
+            var text2 = COUNTERS.get(key).formatForChat(server, realtime);
+            if (text2.isEmpty()) {
+                continue;
             }
+            text.addAll(text2);
         }
-        if (text.isEmpty())
-        {
-            text.add(Messenger.s("No items have been counted yet."));
+        if (text.isEmpty()) {
+            text.add(Messenger.c("w No Input or Output Items for any colour have been counted yet."));
         }
         return text;
     }
 
-    /**
-     * Prints a single counter's contents and timings to chat, with the option to keep it short (so no item breakdown,
-     * only rates). Again, realtime displays IRL time as opposed to in game time.
-     */
-    public List<Component> format(MinecraftServer server, boolean realTime, boolean brief)
-    {
+    public List<Component> formatForChat(MinecraftServer server, boolean realTime) {
+        List<Component> text = new ArrayList<>();
+        long inputCount = getTotalInputItems();
+        long outputCount = getTotalOutputItems();
+
+        if (inputCount <= 0 && outputCount <= 0) {
+            return text;
+        }
+
+        String io = inputCount > 0 ? "Input " + (outputCount > 0 ? "& Output" : "") : "Output";
         long ticks = Math.max(realTime ? (System.currentTimeMillis() - startMillis) / 50 : server.getLevel(Level.OVERWORLD).getGameTime() - startTick, 1);  //OW
-        if (startTick < 0 || ticks == 0)
-        {
-            if (brief)
-            {
-                return Collections.singletonList(Messenger.c("b"+prettyColour,"w : ","gi -, -/h, - min "));
-            }
-            return Collections.singletonList(Messenger.c(prettyColour, "w  hasn't started counting yet"));
-        }
-        long total = getTotalItems();
-        if (total == 0)
-        {
-            if (brief)
-            {
-                return Collections.singletonList(Messenger.c("b"+prettyColour,"w : ","wb 0","w , ","wb 0","w /h, ", String.format("wb %.1f ", ticks / (20.0 * 60.0)), "w min"));
-            }
-            return Collections.singletonList(Messenger.c("w No items for ", prettyColour, String.format("w  yet (%.2f min.%s)",
-                    ticks / (20.0 * 60.0), (realTime ? " - real time" : "")),
-                    "nb  [X]", "^g reset", "!/counter " + color.getName() +" reset"));
-        }
-        if (brief)
-        {
-            return Collections.singletonList(Messenger.c("b"+prettyColour,"w : ",
-                    "wb "+total,"w , ",
-                    "wb "+(total * (20 * 60 * 60) / ticks),"w /h, ",
-                    String.format("wb %.1f ", ticks / (20.0 * 60.0)), "w min"
-            ));
-        }
-        List<Component> items = new ArrayList<>();
-        items.add(Messenger.c("w Items for ", prettyColour,
-                "w  (",String.format("wb %.2f", ticks*1.0/(20*60)), "w  min"+(realTime?" - real time":"")+"), ",
-                "w total: ", "wb "+total, "w , (",String.format("wb %.1f",total*1.0*(20*60*60)/ticks),"w /h):",
-                "nb [X]", "^g reset", "!/counter "+color+" reset"
+
+        text.add(Messenger.c(
+                dyeColourToPrettyColourTitleMap.get(color), "w  " + io + " Items (",
+                String.format("wb %.2f", ticks*1.0/(20*60)), "w  min"+(realTime?" - real time":"")+") : ",
+                "b" + dyeColourToPrettyColourCodeMap.get(color) + "[X]", "^g reset", "!/counter "+color.toString()+" reset"
         ));
-        items.addAll(counter.object2LongEntrySet().stream().sorted((e, f) -> Long.compare(f.getLongValue(), e.getLongValue())).map(e ->
-        {
-            Item item = e.getKey();
-            MutableComponent itemName = Component.translatable(item.getDescriptionId());
-            Style itemStyle = itemName.getStyle();
-            TextColor color = guessColor(item, server.registryAccess());
-            itemName.setStyle((color != null) ? itemStyle.withColor(color) : itemStyle.withItalic(true));
-            long count = e.getLongValue();
-            return Messenger.c("g - ", itemName,
-                    "g : ","wb "+count,"g , ",
-                    String.format("wb %.1f", count * (20.0 * 60.0 * 60.0) / ticks), "w /h"
-            );
-        }).collect(Collectors.toList()));
+        text.addAll(_formatItems(server, realTime));
+
+        return text;
+    }
+
+    private List<Component> _formatItems(MinecraftServer server, boolean realTime)
+    {
+        List<Component> components = _formatItems(server, realTime, "Input", inputCounter);
+        components.addAll(_formatItems(server, realTime, "Output", outputCounter));
+        return components;
+    }
+
+    private List<Component> _formatItems(MinecraftServer server, boolean realTime, String type, Object2LongMap<Item> map) {
+        long ticks = Math.max(realTime ? (System.currentTimeMillis() - startMillis) / 50 : server.getLevel(Level.OVERWORLD).getGameTime() - startTick, 1);  //OW
+        long total = map.isEmpty() ? 0 : map.values().longStream().sum();
+        if (total == 0) {
+            return new ArrayList<>();
+        }
+        long typeCount = map.isEmpty() ? 0 : (long) map.values().size();
+
+        List<Component> items = new ArrayList<>();
+        if (typeCount == 1) {
+            MutableComponent c = Messenger.c("  ", dyeColourToPrettyColourCodeMap.get(color) + type, "w :").copy();
+            var itemKey = map.keySet().toArray()[0];
+            c.append(_formatItem(server, (Item)itemKey, map.getLong(itemKey), ticks, false));
+            items.add(c);
+        } else {
+            items.add(Messenger.c("  ", dyeColourToPrettyColourCodeMap.get(color) + type, "w , Total: ", "wb "+total, "w , (",String.format("wb %.1f",total*1.0*(20*60*60)/ticks),"w /h)"));
+            items.addAll(map.object2LongEntrySet().stream().sorted((e, f) -> Long.compare(f.getLongValue(), e.getLongValue())).map(e -> {
+                return _formatItem(server, e.getKey(), e.getLongValue(), ticks, true);
+            }).toList());
+        }
         return items;
+    }
+
+    private Component _formatItem(MinecraftServer server, Item item, long count, long ticks, boolean dash) {
+        MutableComponent itemName = Component.translatable(item.getDescriptionId());
+        Style itemStyle = itemName.getStyle();
+        TextColor color = guessColor(item, server.registryAccess());
+        itemName.setStyle((color != null) ? itemStyle.withColor(color) : itemStyle.withItalic(true));
+        return Messenger.c("g  " + (dash ? " - " : ""), itemName,
+                "g : ","wb "+count,"g , ",
+                String.format("wb %.1f", count * (20.0 * 60.0 * 60.0) / ticks), "w /h"
+        );
+    }
+
+    public List<Component> formatForHUD(MinecraftServer server) {
+        long inputCount = getTotalInputItems();
+        long outputCount = getTotalOutputItems();
+
+        if (inputCount <= 0 && outputCount <= 0) {
+            return new ArrayList<>();
+        }
+
+        long ticks = Math.max(server.getLevel(Level.OVERWORLD).getGameTime() - startTick, 1);  //OW
+
+        MutableComponent c = Messenger.c("b"+prettyColour,"w : ").copy();
+        if (inputCount > 0) {
+            c.append(Messenger.c("w in: ", "wb " + inputCount, "w , ", "wb " + (inputCount * (20 * 60 * 60) / ticks), "w /h, "));
+        }
+        if (outputCount > 0) {
+            c.append(Messenger.c("wb out: ", "wb " + outputCount, "w , ", "wb " + (outputCount * (20 * 60 * 60) / ticks), "w /h, "));
+        }
+        c.append(Messenger.c(String.format("wb %.1f ", ticks / (20.0 * 60.0)), "w min"));
+
+        return Collections.singletonList(c);
     }
 
     /**
@@ -410,8 +462,13 @@ public class HopperCounter
     /**
      * The total number of items in the counter
      */
-    public long getTotalItems()
+    public long getTotalOutputItems()
     {
-        return counter.isEmpty()?0:counter.values().longStream().sum();
+        return outputCounter.isEmpty()?0:outputCounter.values().longStream().sum();
+    }
+
+    public long getTotalInputItems()
+    {
+        return inputCounter.isEmpty()?0:inputCounter.values().longStream().sum();
     }
 }

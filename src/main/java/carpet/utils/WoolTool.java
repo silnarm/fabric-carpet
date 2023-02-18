@@ -25,7 +25,7 @@ import static java.util.Map.entry;
 
 /**
  * A series of utility functions and variables for dealing predominantly with hopper counters and determining which counter
- * to add their items to, as well as helping dealing with carpet functionality.
+ * to add their items to, as well as helping to deal with carpet functionality.
  */
 public class WoolTool
 {
@@ -106,8 +106,9 @@ public class WoolTool
                     DyeColor under = getWoolColorAtPosition(worldIn, pos.below());
                     if (under == null) return;
                     HopperCounter counter = HopperCounter.getCounter(under.toString());
-                    if (counter != null)
-                        Messenger.send(placer, counter.format(worldIn.getServer(), false, false));
+                    if (counter != null) {
+                        Messenger.send(placer, counter.formatForChat(worldIn.getServer(), false));
+                    }
                 }
                 break;
             case RED:

@@ -135,9 +135,11 @@ public class HUDController
     private static Component [] send_counter_info(MinecraftServer server, String color)
     {
         List <Component> res = new ArrayList<>();
-        Arrays.asList(color.split(",")).forEach(c ->{
+        Arrays.asList(color.split(",")).forEach(c -> {
             HopperCounter counter = HopperCounter.getCounter(c);
-            if (counter != null) res.addAll(counter.format(server, false, true));
+            if (counter != null) {
+                res.addAll(counter.formatForHUD(server));
+            }
         });
         return res.toArray(new Component[0]);
     }

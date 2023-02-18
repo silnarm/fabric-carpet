@@ -57,7 +57,7 @@ public class CounterCommand
         HopperCounter counter = HopperCounter.getCounter(color);
         if (counter == null) throw new CommandRuntimeException(Messenger.s("Unknown wool color: "+color));
 
-        for (Component message: counter.format(source.getServer(), realtime, false))
+        for (Component message: counter.formatForChat(source.getServer(), realtime))
         {
             source.sendSuccess(message, false);
         }
@@ -88,12 +88,12 @@ public class CounterCommand
 
     /**
      * A method to prettily display all the counters to the player
-     * @param realtime Whether or not to display it as in-game time or IRL time, which accounts for less than 20TPS which
+     * @param realtime Whether to display it as in-game time or IRL time, which accounts for less than 20TPS which
      *                would make it slower than IRL
      */
     private static int listAllCounters(CommandSourceStack source, boolean realtime)
     {
-        for (Component message: HopperCounter.formatAll(source.getServer(), realtime))
+        for (Component message: HopperCounter.formatAllForChat(source.getServer(), realtime))
         {
             source.sendSuccess(message, false);
         }
