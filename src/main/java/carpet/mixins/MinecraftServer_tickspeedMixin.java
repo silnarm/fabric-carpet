@@ -18,8 +18,10 @@ import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Constant;
 import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.Redirect;
+import org.spongepowered.asm.mixin.injection.ModifyConstant;
+import org.spongepowered.asm.mixin.injection.ModifyVariable;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
@@ -86,85 +88,79 @@ public abstract class MinecraftServer_tickspeedMixin extends ReentrantBlockableE
      * To ensure compatibility with other mods we should allow milliseconds
      */
 
-    // Cancel a while statement
-    @Redirect(method = "runServer", at = @At(value = "FIELD", target = "Lnet/minecraft/server/MinecraftServer;running:Z"))
-    private boolean cancelRunLoop(MinecraftServer server)
-    {
-        return false;
-    } // target run()
+    private long millisBehind = 0;
 
-    // Replaced the above cancelled while statement with this one
-    // could possibly just inject that mspt selection at the beginning of the loop, but then adding all mspt's to
-    // replace 50L will be a hassle
-    @Inject(method = "runServer", at = @At(value = "INVOKE", shift = At.Shift.AFTER,
-            target = "Lnet/minecraft/server/MinecraftServer;buildServerStatus()Lnet/minecraft/network/protocol/status/ServerStatus;"))
-    private void modifiedRunLoop(CallbackInfo ci)
-    {
-        while (this.running)
+    private void determineTickSpeed() {
+        if (CarpetProfiler.tick_health_requested != 0L)
         {
-            //long long_1 = Util.getMeasuringTimeMs() - this.timeReference;
-            //CM deciding on tick speed
-            if (CarpetProfiler.tick_health_requested != 0L)
+            CarpetProfiler.start_tick_profiling();
+        }
+        long msThisTick = 0L;
+        float mspt = serverTickRateManager.mspt();
+        if (serverTickRateManager.isInWarpSpeed() && serverTickRateManager.continueWarp())
+        {
+            //making sure server won't flop after the warp or if the warp is interrupted
+            this.nextTickTime = this.lastOverloadWarning = Util.getMillis();
+            carpetMsptAccum = mspt;
+            millisBehind = 0;
+        }
+        else
+        {
+            if (Math.abs(carpetMsptAccum - mspt) > 1.0f)
             {
-                CarpetProfiler.start_tick_profiling();
-            }
-            long msThisTick = 0L;
-            long long_1 = 0L;
-            float mspt = serverTickRateManager.mspt();
-            if (serverTickRateManager.isInWarpSpeed() && serverTickRateManager.continueWarp())
-            {
-                //making sure server won't flop after the warp or if the warp is interrupted
-                this.nextTickTime = this.lastOverloadWarning = Util.getMillis();
+                // Tickrate changed. Ensure that we use the correct value.
                 carpetMsptAccum = mspt;
             }
-            else
-            {
-                if (Math.abs(carpetMsptAccum - mspt) > 1.0f)
-                {
-                	// Tickrate changed. Ensure that we use the correct value.
-                	carpetMsptAccum = mspt;
-                }
 
-                msThisTick = (long)carpetMsptAccum; // regular tick
-                carpetMsptAccum += mspt - msThisTick;
+            msThisTick = (long)carpetMsptAccum; // regular tick
+            carpetMsptAccum += mspt - msThisTick;
 
-                long_1 = Util.getMillis() - this.nextTickTime;
-            }
-            //end tick deciding
-            //smoothed out delay to include mcpt component. With 50L gives defaults.
-            if (long_1 > /*2000L*/1000L+20*mspt && this.nextTickTime - this.lastOverloadWarning >= /*15000L*/10000L+100*mspt)
-            {
-                long long_2 = (long)(long_1 / mspt);//50L;
-                LOGGER.warn("Can't keep up! Is the server overloaded? Running {}ms or {} ticks behind", long_1, long_2);
-                this.nextTickTime += (long)(long_2 * mspt);//50L;
-                this.lastOverloadWarning = this.nextTickTime;
-            }
-
-            if (this.debugCommandProfilerDelayStart) {
-                this.debugCommandProfilerDelayStart = false;
-                this.profilerTimings = Pair.of(Util.getNanos(), tickCount);
-                //this.field_33978 = new MinecraftServer.class_6414(Util.getMeasuringTimeNano(), this.ticks);
-            }
-            this.nextTickTime += msThisTick;//50L;
-            //TickDurationMonitor tickDurationMonitor = TickDurationMonitor.create("Server");
-            //this.startMonitor(tickDurationMonitor);
-            this.startMetricsRecordingTick();
-            this.profiler.push("tick");
-            this.tickServer(serverTickRateManager.isInWarpSpeed() ? ()->true : this::haveTime);
-            this.profiler.popPush("nextTickWait");
-            if (serverTickRateManager.isInWarpSpeed()) // clearing all hanging tasks no matter what when warping
-            {
-                while(this.runEveryTask()) {Thread.yield();}
-            }
-            this.mayHaveDelayedTasks = true;
-            this.delayedTasksMaxNextTickTime = Math.max(Util.getMillis() + /*50L*/ msThisTick, this.nextTickTime);
-            // run all tasks (this will not do a lot when warping), but that's fine since we already run them
-            this.waitUntilNextTick();
-            this.profiler.pop();
-            this.endMetricsRecordingTick();
-            this.isReady = true;
+            millisBehind = Util.getMillis() - this.nextTickTime;
         }
+    }
 
+    @ModifyConstant(method = "runServer", constant = @Constant(longValue = 2000))
+    private long maxMillisBehind(long original)
+    {
+        return 1000L + (long)(20 * serverTickRateManager.mspt());
+    }
+
+    @ModifyConstant(method = "runServer", constant = @Constant(longValue = 15000))
+    private long overloadWarningCooldown(long original)
+    {
+        return 10000L + (long)(100 * serverTickRateManager.mspt());
+    }
+
+    @ModifyConstant(method = "runServer", constant = @Constant(longValue = 50))
+    private long millisPerTick(long original)
+    {
+        return (long)serverTickRateManager.mspt();
+    }
+
+    @ModifyVariable(method = "runServer", at = @At("STORE"), ordinal = 0)
+    private long millisBehind(long original)
+    {
+        determineTickSpeed();
+        return millisBehind;
+    }
+
+    @Inject(method = "runServer", at = @At(value = "FIELD", target = "Lnet/minecraft/server/MinecraftServer;mayHaveDelayedTasks:Z", ordinal = 0))
+    private void clearTaskQueue(CallbackInfo ci)
+    {
+        // clearing all hanging tasks no matter what when warping
+        if (serverTickRateManager.isInWarpSpeed()) {
+            while(this.runEveryTask()) {Thread.yield();}
+        }
+    }
+
+    @Inject(method = "haveTime", at = @At(value = "HEAD"), cancellable = true)
+    private void haveDowntime(CallbackInfoReturnable<Boolean> cir)
+    {
+        // do not handle tasks in the 'downtime' between ticks when warping
+        // they are run/cleared in the main loop when warping, see above
+        if (serverTickRateManager.isInWarpSpeed()) {
+            cir.setReturnValue(false);
+        }
     }
 
     // just because profilerTimings class is public
