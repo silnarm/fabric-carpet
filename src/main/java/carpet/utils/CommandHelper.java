@@ -1,6 +1,8 @@
 package carpet.utils;
 
 import carpet.CarpetSettings;
+import me.lucko.fabric.api.permissions.v0.Permissions;
+import net.fabricmc.fabric.api.util.TriState;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.TickTask;
@@ -52,5 +54,14 @@ public final class CommandHelper {
             case "0", "1", "2", "3", "4" -> source.hasPermission(Integer.parseInt(commandLevelString));
             default -> false;
         };
+    }
+
+    public static boolean testPermission(CommandSourceStack source, String apiPerm, String carpetLevel)
+    {
+        TriState permCheck = Permissions.getPermissionValue(source, apiPerm);
+        if (permCheck == TriState.DEFAULT) {
+            return canUseCommand(source, carpetLevel);
+        }
+        return permCheck == TriState.TRUE;
     }
 }

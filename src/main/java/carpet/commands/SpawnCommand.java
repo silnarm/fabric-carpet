@@ -43,7 +43,7 @@ public class SpawnCommand
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher, CommandBuildContext commandBuildContext)
     {
         LiteralArgumentBuilder<CommandSourceStack> literalargumentbuilder = literal("spawn").
-                requires((player) -> CommandHelper.canUseCommand(player, CarpetSettings.commandSpawn));
+                requires((player) -> CommandHelper.testPermission(player, "carpet.commands.spawn", CarpetSettings.commandSpawn));
 
         literalargumentbuilder.
                 then(literal("list").

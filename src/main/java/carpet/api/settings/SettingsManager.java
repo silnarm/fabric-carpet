@@ -602,7 +602,7 @@ public class SettingsManager {
         }
 
         LiteralArgumentBuilder<CommandSourceStack> literalargumentbuilder = literal(identifier).requires((player) ->
-                CommandHelper.canUseCommand(player, CarpetSettings.carpetCommandPermissionLevel) && !locked());
+                CommandHelper.testPermission(player, "carpet.commands.carpet", CarpetSettings.carpetCommandPermissionLevel) && !locked());
 
         literalargumentbuilder.executes((context)-> listAllSettings(context.getSource())).
                 then(literal("list").

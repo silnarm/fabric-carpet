@@ -16,6 +16,10 @@ loom {
 	runtimeOnlyLog4j = true
 }
 
+repositories {
+	maven { url 'https://oss.sonatype.org/content/repositories/snapshots' }
+}
+
 dependencies {
 	// To change the versions see the gradle.properties file
 	minecraft "com.mojang:minecraft:${project.minecraft_version}"
@@ -25,6 +29,9 @@ dependencies {
 	// Fabric API. This is technically optional, but you probably want it anyway.
 	//modImplementation "net.fabricmc:fabric:${project.fabric_version}"
 	//modCompileOnly fabricApi.module("fabric-rendering-v1", project.fabric_version)
+
+	// Fabric Permissions API (include!)
+	modImplementation include("me.lucko:fabric-permissions-api:0.2-SNAPSHOT")
 
 	// PSA: Some older mods, compiled on Loom 0.2.1, might have outdated Maven POMs.
 	// You may need to force-disable transitiveness on them.

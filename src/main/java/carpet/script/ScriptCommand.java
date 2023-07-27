@@ -1,11 +1,13 @@
 package carpet.script;
 
+import carpet.CarpetSettings;
 import carpet.script.external.Carpet;
 import carpet.script.external.Vanilla;
 import carpet.script.utils.AppStoreManager;
 import carpet.script.exception.CarpetExpressionException;
 import carpet.script.value.FunctionValue;
 import carpet.script.value.Value;
+import carpet.utils.CommandHelper;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
@@ -159,7 +161,8 @@ public class ScriptCommand
                     return 1;
                 });
         LiteralArgumentBuilder<CommandSourceStack> l = literal("run").
-                requires(Vanilla::ServerPlayer_canScriptACE).
+                //requires(Vanilla::ServerPlayer_canScriptACE).
+                requires((cs) -> CommandHelper.testPermission(cs, "carpet.script.run", CarpetSettings.commandScriptACE)).
                 then(argument("expr", StringArgumentType.greedyString()).suggests(ScriptCommand::suggestCode).
                         executes((cc) -> compute(
                                 cc,
@@ -285,7 +288,8 @@ public class ScriptCommand
                                                                                 BlockPredicateArgument.getBlockPredicate(cc, "filter"),
                                                                                 "outline"
                                                                         )))))))));
-        LiteralArgumentBuilder<CommandSourceStack> a = literal("load").requires(Vanilla::ServerPlayer_canScriptACE).
+        LiteralArgumentBuilder<CommandSourceStack> a = literal("load").
+                requires((cs) -> CommandHelper.testPermission(cs, "carpet.script.load", CarpetSettings.commandScriptACE)).
                 then(argument("app", StringArgumentType.word()).
                         suggests((cc, bb) -> suggest(ss(cc).listAvailableModules(true), bb)).
                         executes((cc) ->
@@ -302,7 +306,7 @@ public class ScriptCommand
                                 )
                         )
                 );
-        LiteralArgumentBuilder<CommandSourceStack> f = literal("unload").requires(Vanilla::ServerPlayer_canScriptACE).
+        LiteralArgumentBuilder<CommandSourceStack> f = literal("unload").requires((cs) -> CommandHelper.testPermission(cs, "carpet.script.load", CarpetSettings.commandScriptACE)).
                 then(argument("app", StringArgumentType.word()).
                         suggests((cc, bb) -> suggest(ss(cc).unloadableModules, bb)).
                         executes((cc) ->
@@ -311,7 +315,7 @@ public class ScriptCommand
                             return success ? 1 : 0;
                         }));
 
-        LiteralArgumentBuilder<CommandSourceStack> q = literal("event").requires(Vanilla::ServerPlayer_canScriptACE).
+        LiteralArgumentBuilder<CommandSourceStack> q = literal("event").requires((cs) -> CommandHelper.testPermission(cs, "carpet.script.event", CarpetSettings.commandScriptACE)).
                 executes(ScriptCommand::listEvents).
                 then(literal("add_to").
                         then(argument("event", StringArgumentType.word()).
@@ -346,11 +350,11 @@ public class ScriptCommand
                                                 StringArgumentType.getString(cc, "call")
                                         ) ? 1 : 0))));
 
-        LiteralArgumentBuilder<CommandSourceStack> d = literal("download").requires(Vanilla::ServerPlayer_canScriptACE).
+        LiteralArgumentBuilder<CommandSourceStack> d = literal("download").requires((cs) -> CommandHelper.testPermission(cs, "carpet.script.download", CarpetSettings.commandScriptACE)).
                 then(argument("path", StringArgumentType.greedyString()).
                         suggests(ScriptCommand::suggestDownloadableApps).
                         executes(cc -> AppStoreManager.downloadScript(cc.getSource(), StringArgumentType.getString(cc, "path"))));
-        LiteralArgumentBuilder<CommandSourceStack> r = literal("remove").requires(Vanilla::ServerPlayer_canScriptACE).
+        LiteralArgumentBuilder<CommandSourceStack> r = literal("remove").requires((cs) -> CommandHelper.testPermission(cs, "carpet.script.download", CarpetSettings.commandScriptACE)).
                 then(argument("app", StringArgumentType.word()).
                         suggests((cc, bb) -> suggest(ss(cc).unloadableModules, bb)).
                         executes((cc) ->
@@ -360,10 +364,10 @@ public class ScriptCommand
                         }));
 
         dispatcher.register(literal("script").
-                requires(Vanilla::ServerPlayer_canScriptGeneral).
+                requires((cs) -> CommandHelper.testPermission(cs, "carpet.script.base", CarpetSettings.commandScript)).
                 then(b).then(u).then(o).then(l).then(s).then(c).then(h).then(i).then(e).then(t).then(a).then(f).then(q).then(d).then(r));
         dispatcher.register(literal("script").
-                requires(Vanilla::ServerPlayer_canScriptGeneral).
+                requires((cs) -> CommandHelper.testPermission(cs, "carpet.script.base", CarpetSettings.commandScript)).
                 then(literal("in").
                         then(argument("app", StringArgumentType.word()).
                                 suggests((cc, bb) -> suggest(ss(cc).modules.keySet(), bb)).
